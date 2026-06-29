@@ -11,6 +11,16 @@ then streams that health to a browser **Mission Control** dashboard.
 > Status: failover core + telemetry + dashboard + a self-contained local demo.
 > This is the v0/tracer slice of a larger plan (live recording + richer UI to come).
 
+## Live demo (no install)
+
+**▶ [Play the recorded failover in your browser](https://akagifreeez.github.io/relayforge/web/replay.html)** —
+real telemetry captured from the loopback demo, replayed through the same
+dashboard renderer. No clone, no MediaMTX, no setup. Pick a recording
+(failover / recover / degraded), scrub the timeline, watch a link die and the
+controller switch over.
+
+[![replay viewer](demo/replay-viewer.png)](https://akagifreeez.github.io/relayforge/web/replay.html)
+
 ## What this is / what it isn't
 
 - **Deterministic, threshold-based.** No AI/ML — `compute_state()` is pure

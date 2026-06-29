@@ -302,13 +302,16 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass  # quiet
 
+    CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css",
+              ".js": "text/javascript", ".json": "application/json",
+              ".png": "image/png", ".svg": "image/svg+xml", ".gif": "image/gif",
+              ".ico": "image/x-icon"}
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/events":
-            self._serve_sse()
-        elif path in ("/", "/index.html"):
-            self._serve_file("index.html", "text/html; charset=utf-8")
-        elif path == "/snapshot":
+            self._serve_sse(); return
+        if path == "/snapshot":
             body = json.dumps(build_snapshot(time.time()), ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -316,15 +319,21 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        else:
-            self.send_error(404)
+            return
+        # static assets from WEB_DIR (index.html, styles.css, render.js, ...)
+        rel = "index.html" if path in ("/", "") else path.lstrip("/")
+        self._serve_static(rel)
 
-    def _serve_file(self, name, ctype):
+    def _serve_static(self, rel):
+        full = os.path.realpath(os.path.join(WEB_DIR, rel))
+        if not full.startswith(os.path.realpath(WEB_DIR) + os.sep):  # path-traversal guard
+            self.send_error(403); return
         try:
-            with open(os.path.join(WEB_DIR, name), "rb") as f:
+            with open(full, "rb") as f:
                 body = f.read()
         except OSError:
             self.send_error(404); return
+        ctype = self.CTYPES.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))

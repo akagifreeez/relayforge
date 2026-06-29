@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RelayForge — Replay (recorded telemetry)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>RelayForge · Replay</h1>
+  <span id="conn" class="live">recorded</span>
+  <span class="spacer hdr-active">active: <b id="active">—</b></span>
+</header>
+<div class="controls">
+  <label>recording:
+    <select id="rec">
+      <option value="failover">failover (kill a link)</option>
+      <option value="recover">recover (kill → restore primary)</option>
+      <option value="degraded">degraded (low bitrate, no flap)</option>
+    </select>
+  </label>
+  <button id="play">⏸ pause</button>
+  <input id="scrub" type="range" min="0" max="0" value="0">
+  <span class="time" id="time">—</span>
+</div>
+<p class="note">Playback of real telemetry recorded from the local loopback demo (<code>demo/recordings/*.jsonl</code>) — the same renderer as the live dashboard, no install required.</p>
+<main>
+  <section id="cards"><div class="empty">loading…</div></section>
+  <aside>
+    <h2>Switch log</h2>
+    <div id="log"></div>
+  </aside>
+</main>
+<script src="render.js"></script>
+<script>
+  const dash = makeDashboard({
+    cardsEl: document.getElementById("cards"),
+    activeEl: document.getElementById("active"),
+    logEl: document.getElementById("log"),
+  });
+  const recEl = document.getElementById("rec");
+  const playEl = document.getElementById("play");
+  const scrubEl = document.getElementById("scrub");
+  const timeEl = document.getElementById("time");
+  const STEP_MS = 300;
+
+  let snaps = [], idx = 0, t0 = 0, timer = null;
+
+  function fmt(i) {
+    if (!snaps.length) return "—";
+    const rel = (snaps[i].ts - t0).toFixed(1);
+    return `t+${rel}s   ${i + 1}/${snaps.length}`;
+  }
+
+  function seek(i) {            // jump: rebuild log from the start up to i
+    idx = Math.max(0, Math.min(i, snaps.length - 1));
+    dash.reset();
+    for (let k = 0; k <= idx; k++) dash.render(snaps[k]);
+    scrubEl.value = idx;
+    timeEl.textContent = fmt(idx);
+  }
+
+  function step() {             // advance one frame (log accumulates forward)
+    if (idx >= snaps.length - 1) { seek(0); return; }  // loop
+    idx++;
+    dash.render(snaps[idx]);
+    scrubEl.value = idx;
+    timeEl.textContent = fmt(idx);
+  }
+
+  function setPlaying(on) {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (on) timer = setInterval(step, STEP_MS);
+    playEl.textContent = on ? "⏸ pause" : "▶ play";
+  }
+
+  async function load(name) {
+    setPlaying(false);
+    const res = await fetch(`../demo/recordings/${name}.jsonl`, { cache: "no-store" });
+    const text = await res.text();
+    snaps = text.split("\n").filter(Boolean).map(JSON.parse);
+    t0 = snaps.length ? snaps[0].ts : 0;
+    scrubEl.max = Math.max(0, snaps.length - 1);
+    seek(0);
+    setPlaying(true);
+  }
+
+  recEl.onchange = () => load(recEl.value);
+  playEl.onclick = () => setPlaying(!timer);
+  scrubEl.oninput = () => { setPlaying(false); seek(+scrubEl.value); };
+  load(recEl.value);
+</script>
+</body>
+</html>
