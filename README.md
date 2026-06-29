@@ -1,5 +1,7 @@
 # RelayForge
 
+[![CI](https://github.com/akagifreeez/relayforge/actions/workflows/ci.yml/badge.svg)](https://github.com/akagifreeez/relayforge/actions/workflows/ci.yml)
+
 A multi-link **SRT failover controller** with live telemetry. It polls a
 [MediaMTX](https://github.com/bluenviron/mediamtx) instance, scores each publish
 link's health with a deterministic state machine, picks the single **ACTIVE**
@@ -88,6 +90,17 @@ is environment-specific by design.
  "links": [{"name":"linkA","state":"GOOD","bitrate_kbps":1550.0,
             "freeze":0,"rtt_ms":null,"loss_pct":null,"readers":0,"uptime_s":7}]}
 ```
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+16 deterministic tests cover `compute_state()` and `decide()` —
+GOOD/DEGRADED/DEAD with hysteresis, failover, failover-to-degraded, no-flap on a
+degraded primary, cooldown recovery to the primary, and stale-link exclusion. No
+network, MediaMTX, or OBS required; they run in CI on every push.
 
 ## License
 
