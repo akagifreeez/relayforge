@@ -46,6 +46,18 @@ t+23.2s  active=linkA   linkA=GOOD      # linkA restarted -> switch back
 The switch back happened **8.0 s** after the failover = `COOLDOWN_S`: the
 controller waited out the cooldown before returning to the higher-priority link.
 
+## 4. Freeze (~3 s) via synthetic source (`controller.py --source synthetic`)
+
+No MediaMTX/ffmpeg — a scripted timeline drives the same model. linkA stays
+`ready=true` but its `bytesReceived` stops (Δ==0), so the freeze rule fires:
+```
+t+00.0s  linkA=GOOD              active=linkA
+t+07.0s  linkA=DEAD  freeze=3    active=linkB    # bytes stalled, socket open
+```
+This is the real-link-death path (`FREEZE_POLLS=3` ≈ 3 polls), which a clean
+process-kill (scenario 1) can't stage — there the socket closes and `ready`
+flips immediately (~1 s). Recorded to `demo/recordings/freeze.jsonl`.
+
 ## Offline tests
 
 `python -m unittest discover -s tests -t .` — 16 deterministic tests over
@@ -57,6 +69,6 @@ network/MediaMTX/OBS required.
 
 - RTT/loss were populated by this MediaMTX build on `/v3/srtconns` (loopback RTT
   ≈ 0), confirming the SRT-stats path works on this version.
-- Not yet exercised in RelayForge: OBS output switching, the freeze (~3 s) path,
+- Not yet exercised in RelayForge: OBS output switching (code present),
   real senders / multiple physical lines (hardware).
 ```
