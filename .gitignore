@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.log
+demo/demo-run.jsonl
+demo/demo-stdout.log
+demo/demo-controller.log
+*.mp4
+*.mkv
+# MediaMTX auto-generated self-signed certs (throwaway, regenerated each run)
+*.crt
+*.key
+demo/auto.*
+

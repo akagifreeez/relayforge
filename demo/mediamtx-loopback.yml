@@ -1,0 +1,23 @@
+# RelayForge demo — minimal MediaMTX config for a localhost failover demo.
+# No cellular / no real lines: ffmpeg publishes two SRT streams (linkA, linkB)
+# over loopback; the controller polls the API and fails over when one is killed.
+logLevel: info
+logDestinations: [stdout]
+
+# Control API the controller polls (/v3/paths/list, /v3/srtconns/list)
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# SRT ingest (loopback). Publish with: srt://127.0.0.1:8890?streamid=publish:linkA
+srt: yes
+srtAddress: :8890
+
+# RTSP/RTMP/HLS/WebRTC not needed for this demo
+rtsp: no
+rtmp: no
+hls: no
+webrtc: no
+
+# Accept any publish path name (linkA, linkB, ...)
+paths:
+  all_others:
