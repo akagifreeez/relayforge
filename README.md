@@ -19,7 +19,26 @@ dashboard renderer. No clone, no MediaMTX, no setup. Pick a recording
 (failover / recover / degraded), scrub the timeline, watch a link die and the
 controller switch over.
 
-[![replay viewer](demo/replay-viewer.png)](https://akagifreeez.github.io/relayforge/web/replay.html)
+[![RelayForge failover replay](demo/failover.gif)](https://akagifreeez.github.io/relayforge/web/replay.html)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A[linkA] -->|SRT| MTX[MediaMTX]
+  B[linkB] -->|SRT| MTX
+  MTX -->|"API :9997 — paths + srtconns"| CTRL["controller.py<br/>compute_state · decide"]
+  CTRL -->|"SSE /events · /snapshot"| DASH[Mission Control dashboard]
+  CTRL -->|"one snapshot / poll"| JSONL[(JSONL)]
+  JSONL -.->|replay| REPLAY[replay.html · zero-install]
+  CTRL -.->|"obs_apply — code only, not demoed"| OBS[OBS scene switch]
+```
+
+Senders are synthetic / local `ffmpeg` in the demos; real phone/cellular senders
+are hardware (out of scope here). The controller's own work is the dashed-free
+path: the health state machine, the decision, and the telemetry. OBS switching
+(dashed) exists in code but is not exercised in the demos; the ~3 s *freeze* path
+is shown via the synthetic source (below).
 
 ## What this is / what it isn't
 

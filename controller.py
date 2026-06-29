@@ -37,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MEDIAMTX_EXE = os.environ.get("RELAYFORGE_MEDIAMTX_EXE", "mediamtx")
 MEDIAMTX_CFG = os.environ.get("RELAYFORGE_MEDIAMTX_CFG", "")
 API = os.environ.get("RELAYFORGE_API", "http://127.0.0.1:9997/v3")
+SOURCE = os.environ.get("RELAYFORGE_SOURCE", "mediamtx")   # mediamtx | synthetic
 LOGFILE = os.environ.get("RELAYFORGE_LOGFILE", "relayforge.log")
 JSONL_FILE = os.environ.get("RELAYFORGE_JSONL", "")          # "" = no JSONL file
 HTTP_ENABLE = True
@@ -390,48 +391,90 @@ def api_get(path, opener):
         return json.load(r)
 
 
+_prev_states = {}
+
+
+def process_tick(items, conns, now):
+    """Ingest one set of MediaMTX path items + srtconns into the health model,
+    recompute states, decide the active link, and emit telemetry. Shared by the
+    live MediaMTX poller and the synthetic source so both exercise one code path."""
+    with _lock:
+        g["api_ok"] = True
+        seen = set()
+        for item in items:
+            name = item.get("name")
+            if not name:
+                continue
+            seen.add(name)
+            p = paths.get(name) or PathHealth(name)
+            paths[name] = p
+            p.update_from_path(item, now)
+        for c in (conns or []):
+            if c.get("state") == "publish" and c.get("path") in paths:
+                paths[c["path"]].update_srt(c)
+        for name, p in paths.items():
+            if name not in seen:
+                p.offline += 1
+                p.ready = False
+            p.compute_state()
+            if _prev_states.get(name) != p.state:
+                logline("PATH %s: %s -> %s (br=%.0fkb/s freeze=%d off=%d)" % (
+                    name, _prev_states.get(name, "-"), p.state, p.bitrate, p.freeze, p.offline))
+                _prev_states[name] = p.state
+        decide()
+    telemetry_emit(now)  # outside the lock; takes its own lock
+
+
 def poll():
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    prev_states = {}
     while not _stop.is_set():
         now = time.time()
         try:
-            data = api_get("/paths/list", opener)
-            with _lock:
-                g["api_ok"] = True
-                seen = set()
-                for item in data.get("items", []):
-                    name = item.get("name")
-                    if not name:
-                        continue
-                    seen.add(name)
-                    p = paths.get(name) or PathHealth(name)
-                    paths[name] = p
-                    p.update_from_path(item, now)
-                # SRT stats
-                try:
-                    conns = api_get("/srtconns/list", opener)
-                    for c in conns.get("items", []):
-                        if c.get("state") == "publish" and c.get("path") in paths:
-                            paths[c["path"]].update_srt(c)
-                except Exception:
-                    pass
-                # compute state + log changes
-                for name, p in paths.items():
-                    if name not in seen:
-                        p.offline += 1
-                        p.ready = False
-                    p.compute_state()
-                    if prev_states.get(name) != p.state:
-                        logline("PATH %s: %s -> %s (br=%.0fkb/s freeze=%d off=%d)" % (
-                            name, prev_states.get(name, "-"), p.state, p.bitrate, p.freeze, p.offline))
-                        prev_states[name] = p.state
-                decide()
+            items = api_get("/paths/list", opener).get("items", [])
+            try:
+                conns = api_get("/srtconns/list", opener).get("items", [])
+            except Exception:
+                conns = []
+            process_tick(items, conns, now)
         except Exception as e:
             with _lock:
                 g["api_ok"] = False
                 g["last_log"] = "API err: %s" % (str(e)[:80])
-        telemetry_emit(now)  # RelayForge: push JSONL + SSE every poll (outside is fine; takes its own lock)
+        time.sleep(POLL)
+
+
+def synthetic_ticks():
+    """Scripted timeline (no MediaMTX) driving the SAME model. Demonstrates the
+    FREEZE path that is hard to stage live: a link stays ready==True but its
+    bytesReceived stops -> Δbytes==0 -> freeze>=FREEZE_POLLS -> DEAD (~3 polls),
+    so the controller fails over to the still-healthy linkB."""
+    b = {"linkA": 0, "linkB": 0}
+    DELTA = 200_000          # ~1.6 Mbps per 1 s poll
+    freeze_at = 6
+    t = 0
+    while not _stop.is_set():
+        t += 1
+        a_frozen = t >= freeze_at      # linkA's stream silently stalls (socket stays open)
+        if not a_frozen:
+            b["linkA"] += DELTA
+        b["linkB"] += DELTA
+        items = [
+            {"name": "linkA", "ready": True, "tracks": ["H264", "AAC"], "readers": [], "bytesReceived": b["linkA"]},
+            {"name": "linkB", "ready": True, "tracks": ["H264", "AAC"], "readers": [], "bytesReceived": b["linkB"]},
+        ]
+        conns = [
+            {"state": "publish", "path": "linkA", "msRTT": 5.0, "packetsReceivedLossRate": 0.0},
+            {"state": "publish", "path": "linkB", "msRTT": 4.0, "packetsReceivedLossRate": 0.0},
+        ]
+        yield items, conns
+
+
+def poll_synthetic():
+    logline("source=synthetic (no MediaMTX) — scripted freeze demo")
+    for items, conns in synthetic_ticks():
+        if _stop.is_set():
+            break
+        process_tick(items, conns, time.time())
         time.sleep(POLL)
 
 
@@ -516,7 +559,7 @@ def render():
 def configure(argv):
     """Populate the module globals from env defaults + CLI. Keeps the threading
     model untouched (we only reassign module-level values at startup)."""
-    global MEDIAMTX_EXE, MEDIAMTX_CFG, API, LOGFILE, JSONL_FILE, POLL
+    global MEDIAMTX_EXE, MEDIAMTX_CFG, API, SOURCE, LOGFILE, JSONL_FILE, POLL
     global HTTP_ENABLE, HTTP_HOST, HTTP_PORT, PRIORITY
     global FREEZE_POLLS, OFFLINE_POLLS, DEGRADE_BITRATE_KBPS, DEGRADE_RTT_MS
     global DEGRADE_LOSS_PCT, DEGRADE_POLLS, COOLDOWN_S
@@ -526,6 +569,8 @@ def configure(argv):
     p.add_argument("--no-supervise", action="store_true", help="watch an existing MediaMTX (do not spawn it)")
     p.add_argument("--headless", action="store_true", help="no TUI (telemetry still served)")
     p.add_argument("--api", default=API, help="MediaMTX API base (default %(default)s)")
+    p.add_argument("--source", choices=["mediamtx", "synthetic"], default=SOURCE,
+                   help="mediamtx=poll the API; synthetic=scripted freeze demo, no MediaMTX needed")
     p.add_argument("--mediamtx-exe", default=MEDIAMTX_EXE)
     p.add_argument("--mediamtx-cfg", default=MEDIAMTX_CFG)
     p.add_argument("--logfile", default=LOGFILE)
@@ -539,6 +584,7 @@ def configure(argv):
     args = p.parse_args(argv)
 
     API = args.api
+    SOURCE = args.source
     MEDIAMTX_EXE = args.mediamtx_exe
     MEDIAMTX_CFG = args.mediamtx_cfg
     LOGFILE = args.logfile
@@ -571,9 +617,12 @@ def main():
     obs_connect()
     if http_enable:
         threading.Thread(target=serve_http, daemon=True).start()
-    if not args.no_supervise:
-        threading.Thread(target=supervise, daemon=True).start()
-    threading.Thread(target=poll, daemon=True).start()
+    if SOURCE == "synthetic":
+        threading.Thread(target=poll_synthetic, daemon=True).start()
+    else:
+        if not args.no_supervise:
+            threading.Thread(target=supervise, daemon=True).start()
+        threading.Thread(target=poll, daemon=True).start()
     if not args.headless:
         threading.Thread(target=render, daemon=True).start()
     try:

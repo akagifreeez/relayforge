@@ -10,4 +10,5 @@ demo/demo-controller.log
 *.crt
 *.key
 demo/auto.*
+demo/_gifframes/
 
