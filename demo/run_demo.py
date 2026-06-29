@@ -84,8 +84,11 @@ def main():
     ap.add_argument("--http-port", type=int, default=8080)
     ap.add_argument("--jsonl", default=os.path.join(HERE, "demo-run.jsonl"))
     ap.add_argument("--bitrate", type=int, default=1500)
-    ap.add_argument("--auto", action="store_true", help="scripted: kill linkA mid-run, then exit")
+    ap.add_argument("--auto", action="store_true", help="run a scripted scenario, then exit")
+    ap.add_argument("--scenario", choices=["failover", "recover", "degraded"], default="failover",
+                    help="failover=kill linkA; recover=kill then restart linkA; degraded=linkA at low bitrate")
     ap.add_argument("--kill-after", type=float, default=12.0)
+    ap.add_argument("--restart-gap", type=float, default=10.0, help="recover: seconds after kill before linkA restarts")
     ap.add_argument("--duration", type=float, default=22.0)
     args = ap.parse_args()
 
@@ -100,7 +103,8 @@ def main():
           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2.0)  # let the API/SRT listener come up
 
-    spawn("linkA", ffmpeg_cmd(args.ffmpeg, "linkA", args.bitrate))
+    a_kbps = 150 if args.scenario == "degraded" else args.bitrate   # 150+audio < DEGRADE_BITRATE_KBPS(300)
+    spawn("linkA", ffmpeg_cmd(args.ffmpeg, "linkA", a_kbps))
     spawn("linkB", ffmpeg_cmd(args.ffmpeg, "linkB", args.bitrate))
     time.sleep(1.5)
 
@@ -121,11 +125,23 @@ def main():
         while True:
             time.sleep(1)
 
-    # scripted scenario
-    print("  [auto] running %ss, killing linkA at t=%ss" % (args.duration, args.kill_after))
-    time.sleep(args.kill_after)
-    kill("linkA")
-    time.sleep(args.duration - args.kill_after)
+    # scripted scenarios
+    if args.scenario == "degraded":
+        print("  [auto] degraded: linkA at %dkbps (< 300), running %ss" % (a_kbps, args.duration))
+        time.sleep(args.duration)
+    elif args.scenario == "recover":
+        print("  [auto] recover: kill linkA @%ss, restart @%ss" % (
+            args.kill_after, args.kill_after + args.restart_gap))
+        time.sleep(args.kill_after)
+        kill("linkA")
+        time.sleep(args.restart_gap)
+        spawn("linkA", ffmpeg_cmd(args.ffmpeg, "linkA", args.bitrate))   # bring the primary back
+        time.sleep(max(1.0, args.duration - args.kill_after - args.restart_gap))
+    else:  # failover
+        print("  [auto] failover: kill linkA @%ss, run %ss" % (args.kill_after, args.duration))
+        time.sleep(args.kill_after)
+        kill("linkA")
+        time.sleep(max(1.0, args.duration - args.kill_after))
     cleanup()
 
 
