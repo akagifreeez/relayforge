@@ -269,8 +269,8 @@ def build_snapshot(now):
                 "state": p.state,
                 "bitrate_kbps": round(p.bitrate, 1),
                 "freeze": p.freeze,
-                "rtt_ms": p.rtt,
-                "loss_pct": p.loss,
+                "rtt_ms": round(p.rtt, 2) if p.rtt is not None else None,
+                "loss_pct": round(p.loss, 2) if p.loss is not None else None,
                 "readers": p.readers,
                 "uptime_s": int(now - p.online_since) if p.online_since else None,
             })

@@ -54,6 +54,18 @@ python run_demo.py --mediamtx /path/to/mediamtx           # then kill linkA's ff
 Open <http://127.0.0.1:8080> to watch link cards flip GOOD → DEAD and the ACTIVE
 marker move when a link dies. Every poll is also appended to `demo/demo-run.jsonl`.
 
+### Mission Control — before / after a link death
+
+Both links healthy, `linkA` ACTIVE:
+
+![before](demo/dashboard-1-prekill.png)
+
+`linkA` killed → `DEAD`, controller fails over to `linkB` (see the switch log):
+
+![after](demo/dashboard-2-postkill.png)
+
+See [`demo/RESULTS.md`](demo/RESULTS.md) for the measured timing.
+
 ## Controller (standalone)
 
 ```bash
