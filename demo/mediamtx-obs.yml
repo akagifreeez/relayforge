@@ -1,0 +1,23 @@
+# RelayForge OBS demo — MediaMTX config that ALSO exposes RTSP so OBS media
+# sources can read each link (rtsp://127.0.0.1:8554/<name>). Same SRT ingest +
+# API as the loopback config, plus RTSP read.
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# SRT ingest (publish with srt://127.0.0.1:8890?streamid=publish:linkA)
+srt: yes
+srtAddress: :8890
+
+# RTSP read for OBS media sources
+rtsp: yes
+rtspAddress: :8554
+
+rtmp: no
+hls: no
+webrtc: no
+
+paths:
+  all_others:

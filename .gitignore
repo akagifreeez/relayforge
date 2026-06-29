@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.log
 demo/demo-run.jsonl
+demo/obs-run.jsonl
 demo/demo-stdout.log
 demo/demo-controller.log
 *.mp4

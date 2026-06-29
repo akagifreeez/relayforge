@@ -31,14 +31,13 @@ flowchart LR
   CTRL -->|"SSE /events · /snapshot"| DASH[Mission Control dashboard]
   CTRL -->|"one snapshot / poll"| JSONL[(JSONL)]
   JSONL -.->|replay| REPLAY[replay.html · zero-install]
-  CTRL -.->|"obs_apply — code only, not demoed"| OBS[OBS scene switch]
+  CTRL -->|"obs_apply"| OBS[OBS scene switch]
 ```
 
 Senders are synthetic / local `ffmpeg` in the demos; real phone/cellular senders
-are hardware (out of scope here). The controller's own work is the dashed-free
-path: the health state machine, the decision, and the telemetry. OBS switching
-(dashed) exists in code but is not exercised in the demos; the ~3 s *freeze* path
-is shown via the synthetic source (below).
+are hardware (out of scope here). The controller's own work is the health state
+machine, the decision, the telemetry, and the OBS integration. The ~3 s *freeze*
+path is shown via the synthetic source; the OBS program switch is shown below.
 
 ## What this is / what it isn't
 
@@ -96,6 +95,22 @@ Both links healthy, `linkA` ACTIVE:
 ![after](demo/dashboard-2-postkill.png)
 
 See [`demo/RESULTS.md`](demo/RESULTS.md) for the measured timing.
+
+### The broadcast follows the link (OBS)
+
+With OBS running (obs-websocket enabled), the controller enables only the ACTIVE
+link's source, so the **program output itself** switches on failover. Here linkA
+(blue) is live; after linkA is killed, OBS switches to linkB (green):
+
+![OBS program before/after failover — blue linkA then green linkB](demo/obs-failover.png)
+
+Verified both visually and via obs-websocket scene-item state
+(`linkA:on,linkB:off` → `linkA:off,linkB:on`). Run it:
+
+```bash
+pip install obsws-python
+cd demo && python run_obs_demo.py --mediamtx /path/to/mediamtx --auto
+```
 
 ## Controller (standalone)
 
